@@ -1,0 +1,615 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Chore Tracker</title>
+<style>
+  :root {
+    --bg: #f6f7fb;
+    --card: #ffffff;
+    --text: #1a1a2e;
+    --muted: #6b7280;
+    --primary: #4f46e5;
+    --primary-hover: #4338ca;
+    --success: #10b981;
+    --warn: #f59e0b;
+    --danger: #ef4444;
+    --border: #e5e7eb;
+    --imessage: #007aff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+  }
+  header {
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  header h1 { margin: 0; font-size: 1.2rem; }
+  .user-info { display: flex; gap: 10px; align-items: center; font-size: 0.9rem; flex-wrap: wrap; }
+  .role-badge {
+    padding: 2px 8px;
+    border-radius: 12px;
+    background: var(--primary);
+    color: white;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .role-badge.kid { background: var(--success); }
+  .balance {
+    background: #ecfdf5;
+    color: #047857;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-weight: 600;
+  }
+  main {
+    max-width: 760px;
+    margin: 20px auto;
+    padding: 0 16px;
+    display: grid;
+    gap: 20px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px;
+  }
+  .card h2 { margin: 0 0 12px; font-size: 1.05rem; }
+
+  form { display: grid; gap: 10px; }
+  label { display: grid; gap: 4px; font-size: 0.88rem; color: var(--muted); }
+  input, textarea, select {
+    font: inherit;
+    padding: 9px 11px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: white;
+    color: var(--text);
+  }
+  input:focus, textarea:focus, select:focus { outline: 2px solid var(--primary); outline-offset: -1px; }
+
+  button, .btn-link {
+    font: inherit;
+    cursor: pointer;
+    border: none;
+    background: var(--primary);
+    color: white;
+    padding: 9px 14px;
+    border-radius: 8px;
+    font-weight: 500;
+    text-decoration: none;
+    display: inline-block;
+  }
+  button:hover, .btn-link:hover { background: var(--primary-hover); }
+  button.secondary { background: #e5e7eb; color: var(--text); }
+  button.secondary:hover { background: #d1d5db; }
+  button.success { background: var(--success); }
+  button.success:hover { background: #059669; }
+  button.warn { background: var(--warn); }
+  button.warn:hover { background: #d97706; }
+  button.danger { background: var(--danger); }
+  button.danger:hover { background: #dc2626; }
+  button.tiny, .btn-link.tiny { padding: 5px 10px; font-size: 0.85rem; }
+  .btn-link.imessage { background: var(--imessage); }
+  .btn-link.imessage:hover { background: #0062cc; }
+
+  .chore-list { display: grid; gap: 12px; }
+  .chore {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    display: grid;
+    gap: 10px;
+  }
+  .chore-head { display: flex; justify-content: space-between; gap: 12px; align-items: start; }
+  .chore-title { margin: 0; font-size: 1rem; }
+  .chore-desc { color: var(--muted); font-size: 0.9rem; margin: 0; }
+  .reward { font-weight: 700; color: var(--success); }
+  .status {
+    display: inline-block;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 2px 8px;
+    border-radius: 10px;
+  }
+  .status.open { background: #dbeafe; color: #1e40af; }
+  .status.claimed { background: #fef3c7; color: #92400e; }
+  .status.completed { background: #fce7f3; color: #9d174d; }
+  .status.approved { background: #d1fae5; color: #065f46; }
+  .chore-meta { font-size: 0.8rem; color: var(--muted); }
+  .chore-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .empty { color: var(--muted); font-style: italic; }
+
+  .profile-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .profile-tile {
+    text-align: center;
+    padding: 16px 10px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: white;
+    cursor: pointer;
+  }
+  .profile-tile:hover { border-color: var(--primary); background: #f5f3ff; }
+  .profile-tile .name { font-weight: 600; margin-bottom: 4px; }
+  .profile-tile .role-badge { margin-top: 4px; }
+  .profile-tile .bal { font-size: 0.8rem; color: var(--success); margin-top: 6px; font-weight: 600; }
+
+  .members-list { display: grid; gap: 6px; }
+  .member-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: #f9fafb;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .member-row .contact { font-size: 0.8rem; color: var(--muted); }
+
+  details { margin-top: 8px; }
+  details summary { cursor: pointer; color: var(--primary); font-size: 0.9rem; }
+
+  @media (max-width: 540px) {
+    .chore-head { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+(() => {
+  const STORAGE_KEY = 'choresApp.v1';
+  const root = document.getElementById('app');
+
+  function loadState() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch {}
+    return { profiles: [], chores: [], activeProfileId: null };
+  }
+
+  function saveState() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }
+
+  const state = loadState();
+
+  function uid() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  }
+
+  function fmtMoney(cents) {
+    return `$${(cents / 100).toFixed(2)}`;
+  }
+
+  function activeProfile() {
+    return state.profiles.find(p => p.id === state.activeProfileId) || null;
+  }
+
+  function profileById(id) {
+    return state.profiles.find(p => p.id === id);
+  }
+
+  function paymentSmsUrl(contact, cents, choreTitle) {
+    const isEmail = contact.includes('@');
+    const cleaned = isEmail ? contact.trim() : contact.replace(/[^\d+]/g, '');
+    const body = `Sending you ${fmtMoney(cents)} for "${choreTitle}" via Apple Cash 💸 (tap the apps icon in this message, then Apple Cash)`;
+    return `sms:${encodeURIComponent(cleaned)}?&body=${encodeURIComponent(body)}`;
+  }
+
+  function el(tag, attrs = {}, ...children) {
+    const node = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (k === 'class') node.className = v;
+      else if (k.startsWith('on') && typeof v === 'function') node.addEventListener(k.slice(2).toLowerCase(), v);
+      else if (v === true) node.setAttribute(k, '');
+      else if (v !== false && v != null) node.setAttribute(k, v);
+    }
+    for (const child of children.flat()) {
+      if (child == null || child === false) continue;
+      node.appendChild(typeof child === 'string' ? document.createTextNode(child) : child);
+    }
+    return node;
+  }
+
+  // --- Actions ---
+
+  function addProfile({ name, role, contact }) {
+    state.profiles.push({
+      id: uid(),
+      name: name.trim(),
+      role,
+      contact: contact ? contact.trim() : '',
+      balance_cents: 0,
+    });
+    saveState();
+  }
+
+  function removeProfile(id) {
+    state.profiles = state.profiles.filter(p => p.id !== id);
+    // Free up any chores claimed by this profile
+    for (const c of state.chores) {
+      if (c.claimed_by === id && c.status !== 'approved') {
+        c.claimed_by = null;
+        c.claimed_at = null;
+        c.completed_at = null;
+        c.status = 'open';
+      }
+    }
+    if (state.activeProfileId === id) state.activeProfileId = null;
+    saveState();
+  }
+
+  function updateContact(id, contact) {
+    const p = profileById(id);
+    if (!p) return;
+    p.contact = contact.trim();
+    saveState();
+  }
+
+  function addChore({ title, description, rewardCents }) {
+    state.chores.push({
+      id: uid(),
+      title: title.trim(),
+      description: (description || '').trim() || null,
+      reward_cents: Math.max(0, Math.floor(rewardCents)),
+      status: 'open',
+      created_by: state.activeProfileId,
+      claimed_by: null,
+      claimed_at: null,
+      completed_at: null,
+      approved_at: null,
+      created_at: new Date().toISOString(),
+    });
+    saveState();
+  }
+
+  function deleteChore(id) {
+    state.chores = state.chores.filter(c => c.id !== id);
+    saveState();
+  }
+
+  function claimChore(id) {
+    const c = state.chores.find(x => x.id === id);
+    if (!c || c.status !== 'open') return;
+    c.status = 'claimed';
+    c.claimed_by = state.activeProfileId;
+    c.claimed_at = new Date().toISOString();
+    saveState();
+  }
+
+  function unclaimChore(id) {
+    const c = state.chores.find(x => x.id === id);
+    if (!c || c.status !== 'claimed' || c.claimed_by !== state.activeProfileId) return;
+    c.status = 'open';
+    c.claimed_by = null;
+    c.claimed_at = null;
+    saveState();
+  }
+
+  function completeChore(id) {
+    const c = state.chores.find(x => x.id === id);
+    if (!c || c.status !== 'claimed' || c.claimed_by !== state.activeProfileId) return;
+    c.status = 'completed';
+    c.completed_at = new Date().toISOString();
+    saveState();
+  }
+
+  function approveChore(id) {
+    const c = state.chores.find(x => x.id === id);
+    if (!c || c.status !== 'completed') return;
+    c.status = 'approved';
+    c.approved_at = new Date().toISOString();
+    const kid = profileById(c.claimed_by);
+    if (kid) kid.balance_cents += c.reward_cents;
+    saveState();
+  }
+
+  function rejectChore(id) {
+    const c = state.chores.find(x => x.id === id);
+    if (!c || c.status !== 'completed') return;
+    c.status = 'claimed';
+    c.completed_at = null;
+    saveState();
+  }
+
+  function switchProfile(id) {
+    state.activeProfileId = id;
+    saveState();
+    render();
+  }
+
+  function resetApp() {
+    if (!confirm('Erase all profiles and chores on this device?')) return;
+    localStorage.removeItem(STORAGE_KEY);
+    state.profiles = [];
+    state.chores = [];
+    state.activeProfileId = null;
+    render();
+  }
+
+  // --- Views ---
+
+  function profilePicker() {
+    const wrap = el('main');
+    const card = el('div', { class: 'card' });
+    card.appendChild(el('h2', {}, 'Who\'s using this?'));
+
+    if (state.profiles.length === 0) {
+      card.appendChild(el('p', { class: 'empty' }, 'No profiles yet — add a parent to get started.'));
+    } else {
+      const grid = el('div', { class: 'profile-grid' });
+      for (const p of state.profiles) {
+        grid.appendChild(el('div', { class: 'profile-tile', onClick: () => switchProfile(p.id) },
+          el('div', { class: 'name' }, p.name),
+          el('span', { class: `role-badge ${p.role}` }, p.role),
+          p.role === 'kid' ? el('div', { class: 'bal' }, fmtMoney(p.balance_cents)) : null,
+        ));
+      }
+      card.appendChild(grid);
+    }
+
+    card.appendChild(addProfileForm());
+
+    if (state.profiles.length > 0) {
+      const details = el('details');
+      details.appendChild(el('summary', {}, 'Manage profiles'));
+      const list = el('div', { class: 'members-list', style: 'margin-top: 8px;' });
+      for (const p of state.profiles) {
+        list.appendChild(el('div', { class: 'member-row' },
+          el('span', {}, `${p.name} `, el('span', { class: `role-badge ${p.role}` }, p.role)),
+          el('button', {
+            class: 'danger tiny',
+            onClick: () => {
+              if (confirm(`Remove ${p.name}? Their unfinished chores will go back to the pool.`)) {
+                removeProfile(p.id);
+                render();
+              }
+            }
+          }, 'Remove'),
+        ));
+      }
+      details.appendChild(list);
+      details.appendChild(el('button', {
+        class: 'secondary tiny',
+        style: 'margin-top: 10px;',
+        onClick: resetApp,
+      }, 'Erase all data'));
+      card.appendChild(details);
+    }
+
+    wrap.appendChild(card);
+    return el('div', {},
+      el('header', {}, el('h1', {}, 'Chore Tracker')),
+      wrap,
+    );
+  }
+
+  function addProfileForm() {
+    return el('form', {
+      style: 'margin-top: 14px;',
+      onSubmit: (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        const name = (fd.get('name') || '').toString().trim();
+        if (!name) return;
+        addProfile({
+          name,
+          role: fd.get('role'),
+          contact: (fd.get('contact') || '').toString(),
+        });
+        e.target.reset();
+        render();
+      }
+    },
+      el('h2', { style: 'margin: 6px 0 4px; font-size: 0.95rem;' }, 'Add a profile'),
+      el('label', {}, 'Name', el('input', { name: 'name', required: true, placeholder: 'e.g. Mom or Lily' })),
+      el('label', {}, 'Role',
+        el('select', { name: 'role' },
+          el('option', { value: 'parent' }, 'Parent'),
+          el('option', { value: 'kid' }, 'Kid'),
+        ),
+      ),
+      el('label', {}, 'Apple Cash contact (optional — iCloud email or phone, for kids)',
+        el('input', { name: 'contact', type: 'text', placeholder: 'kid@icloud.com' }),
+      ),
+      el('button', { type: 'submit' }, 'Add profile'),
+    );
+  }
+
+  function appView() {
+    const me = activeProfile();
+    const isParent = me.role === 'parent';
+    return el('div', {},
+      el('header', {},
+        el('h1', {}, 'Chore Tracker'),
+        el('div', { class: 'user-info' },
+          el('span', {}, `Hi, ${me.name}`),
+          el('span', { class: `role-badge ${me.role}` }, me.role),
+          !isParent && el('span', { class: 'balance' }, fmtMoney(me.balance_cents)),
+          el('button', { class: 'secondary tiny', onClick: () => switchProfile(null) }, 'Switch user'),
+        ),
+      ),
+      el('main', {},
+        isParent ? parentPanel() : kidPanel(me),
+        familyPanel(),
+        choreListPanel(isParent, me),
+      ),
+    );
+  }
+
+  function parentPanel() {
+    return el('div', { class: 'card' },
+      el('h2', {}, 'Add a new chore'),
+      el('form', {
+        onSubmit: (e) => {
+          e.preventDefault();
+          const fd = new FormData(e.target);
+          const dollars = parseFloat(fd.get('reward')) || 0;
+          addChore({
+            title: (fd.get('title') || '').toString(),
+            description: (fd.get('description') || '').toString(),
+            rewardCents: Math.round(dollars * 100),
+          });
+          e.target.reset();
+          e.target.elements.reward.value = '1.00';
+          render();
+        }
+      },
+        el('label', {}, 'Title', el('input', { name: 'title', required: true, placeholder: 'e.g. Take out the trash' })),
+        el('label', {}, 'Description (optional)', el('textarea', { name: 'description', rows: 2 })),
+        el('label', {}, 'Reward ($)', el('input', { name: 'reward', type: 'number', min: '0', step: '0.25', required: true, value: '1.00' })),
+        el('button', { type: 'submit' }, 'Add chore'),
+      ),
+    );
+  }
+
+  function kidPanel(me) {
+    return el('div', { class: 'card' },
+      el('h2', {}, 'Your earnings'),
+      el('p', { style: 'font-size: 1.6rem; margin: 4px 0; color: var(--success); font-weight: 700;' },
+        fmtMoney(me.balance_cents)
+      ),
+      el('p', { class: 'chore-meta' }, 'Pick a chore below, mark it done, and a parent will approve it.'),
+      el('form', {
+        style: 'margin-top: 10px; display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end;',
+        onSubmit: (e) => {
+          e.preventDefault();
+          const contact = new FormData(e.target).get('contact');
+          updateContact(me.id, (contact || '').toString());
+          render();
+        }
+      },
+        el('label', {}, 'Apple Cash contact (iCloud email or phone)',
+          el('input', { name: 'contact', type: 'text', placeholder: 'you@icloud.com', value: me.contact || '' })
+        ),
+        el('button', { type: 'submit', class: 'secondary tiny' }, 'Save'),
+      ),
+    );
+  }
+
+  function familyPanel() {
+    return el('div', { class: 'card' },
+      el('h2', {}, 'Family'),
+      el('div', { class: 'members-list' },
+        ...state.profiles.map(p =>
+          el('div', { class: 'member-row' },
+            el('div', {},
+              el('div', {}, `${p.name} `, el('span', { class: `role-badge ${p.role}` }, p.role)),
+              p.contact ? el('div', { class: 'contact' }, p.contact) : null,
+            ),
+            p.role === 'kid' ? el('span', { class: 'balance' }, fmtMoney(p.balance_cents)) : el('span', {}),
+          )
+        ),
+      ),
+    );
+  }
+
+  function choreListPanel(isParent, me) {
+    const sorted = [...state.chores].sort((a, b) => {
+      const order = { open: 0, claimed: 1, completed: 2, approved: 3 };
+      if (order[a.status] !== order[b.status]) return order[a.status] - order[b.status];
+      return (b.created_at || '').localeCompare(a.created_at || '');
+    });
+    return el('div', { class: 'card' },
+      el('h2', {}, 'Chores'),
+      sorted.length === 0
+        ? el('p', { class: 'empty' }, isParent ? 'No chores yet — add one above.' : 'Nothing here yet. Check back soon!')
+        : el('div', { class: 'chore-list' }, ...sorted.map(c => choreItem(c, isParent, me))),
+    );
+  }
+
+  function choreItem(chore, isParent, me) {
+    const creator = profileById(chore.created_by);
+    const claimer = profileById(chore.claimed_by);
+    const isMine = chore.claimed_by === me.id;
+    return el('div', { class: 'chore' },
+      el('div', { class: 'chore-head' },
+        el('div', {},
+          el('h3', { class: 'chore-title' }, chore.title),
+          chore.description ? el('p', { class: 'chore-desc' }, chore.description) : null,
+        ),
+        el('div', { style: 'text-align: right' },
+          el('div', { class: 'reward' }, fmtMoney(chore.reward_cents)),
+          el('div', { class: `status ${chore.status}`, style: 'margin-top: 4px' }, chore.status),
+        ),
+      ),
+      el('div', { class: 'chore-meta' }, choreMeta(creator, claimer)),
+      el('div', { class: 'chore-actions' }, ...choreActions(chore, isParent, isMine, claimer)),
+    );
+  }
+
+  function choreMeta(creator, claimer) {
+    const parts = [`Added by ${creator ? creator.name : 'someone'}`];
+    if (claimer) parts.push(`claimed by ${claimer.name}`);
+    return parts.join(' · ');
+  }
+
+  function choreActions(chore, isParent, isMine, claimer) {
+    const actions = [];
+    if (isParent) {
+      if (chore.status === 'completed') {
+        actions.push(el('button', { class: 'success tiny', onClick: () => { approveChore(chore.id); render(); } }, 'Approve & pay'));
+        actions.push(el('button', { class: 'warn tiny', onClick: () => { rejectChore(chore.id); render(); } }, 'Send back'));
+      }
+      if (chore.status === 'approved' && claimer && claimer.contact) {
+        actions.push(el('a', {
+          class: 'btn-link imessage tiny',
+          href: paymentSmsUrl(claimer.contact, chore.reward_cents, chore.title),
+        }, `💬 Pay ${fmtMoney(chore.reward_cents)}`));
+      }
+      if (chore.status !== 'approved') {
+        actions.push(el('button', {
+          class: 'danger tiny',
+          onClick: () => {
+            if (confirm(`Delete chore "${chore.title}"?`)) { deleteChore(chore.id); render(); }
+          }
+        }, 'Delete'));
+      }
+    } else {
+      if (chore.status === 'open') {
+        actions.push(el('button', { class: 'tiny', onClick: () => { claimChore(chore.id); render(); } }, 'Pick this chore'));
+      }
+      if (chore.status === 'claimed' && isMine) {
+        actions.push(el('button', { class: 'success tiny', onClick: () => { completeChore(chore.id); render(); } }, 'Mark done'));
+        actions.push(el('button', { class: 'secondary tiny', onClick: () => { unclaimChore(chore.id); render(); } }, 'Give up'));
+      }
+    }
+    return actions;
+  }
+
+  // --- Render ---
+
+  function render() {
+    root.innerHTML = '';
+    root.appendChild(activeProfile() ? appView() : profilePicker());
+  }
+
+  render();
+})();
+</script>
+</body>
+</html>
