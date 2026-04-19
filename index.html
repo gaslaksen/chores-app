@@ -4,6 +4,8 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Chore Tracker</title>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 <style>
   :root {
     --bg: #f6f7fb;
@@ -154,6 +156,35 @@
   .profile-tile .role-badge { margin-top: 4px; }
   .profile-tile .bal { font-size: 0.8rem; color: var(--success); margin-top: 6px; font-weight: 600; }
 
+  .family-banner {
+    background: #eef2ff;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 0.85rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .family-banner code {
+    background: white;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+    letter-spacing: 1px;
+  }
+  .sync-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #d1d5db;
+    margin-right: 6px;
+  }
+  .sync-dot.connected { background: var(--success); }
+  .sync-dot.error { background: var(--danger); }
+
   .members-list { display: grid; gap: 6px; }
   .member-row {
     display: flex;
@@ -180,10 +211,21 @@
 
 <script>
 (() => {
+  const FIREBASE_CONFIG = {
+    apiKey: "AIzaSyBQu5AjAh25pn4EHugA-VWn0wYCdZLjPD8",
+    authDomain: "chores-app-9d3cb.firebaseapp.com",
+    databaseURL: "https://chores-app-9d3cb-default-rtdb.firebaseio.com",
+    projectId: "chores-app-9d3cb",
+    storageBucket: "chores-app-9d3cb.firebasestorage.app",
+    messagingSenderId: "837618800965",
+    appId: "1:837618800965:web:46bb2027095fc70023862c",
+  };
+
   const STORAGE_KEY = 'choresApp.v1';
+  const FAMILY_KEY = 'choresApp.familyCode';
   const root = document.getElementById('app');
 
-  function loadState() {
+  function loadLocal() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) return JSON.parse(raw);
@@ -191,11 +233,107 @@
     return { profiles: [], chores: [], activeProfileId: null };
   }
 
-  function saveState() {
+  function saveLocal() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }
 
-  const state = loadState();
+  // Push local profiles+chores to Firebase. activeProfileId stays per-device.
+  function pushRemote() {
+    if (!firebaseReady || !dataRef || suppressWrite) return;
+    dataRef.set({
+      profiles: state.profiles,
+      chores: state.chores,
+      updated_at: Date.now(),
+    }).catch(err => console.warn('Firebase write failed', err));
+  }
+
+  function saveState() {
+    saveLocal();
+    pushRemote();
+  }
+
+  const state = loadLocal();
+  let familyCode = localStorage.getItem(FAMILY_KEY);
+  let firebaseReady = false;
+  let dataRef = null;
+  let suppressWrite = false;
+  let syncStatus = 'offline'; // offline | connecting | connected | error
+
+  function setFamilyCode(code) {
+    familyCode = code ? code.trim().toUpperCase() : null;
+    if (familyCode) localStorage.setItem(FAMILY_KEY, familyCode);
+    else localStorage.removeItem(FAMILY_KEY);
+  }
+
+  function generateFamilyCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let out = '';
+    for (let i = 0; i < 6; i++) out += chars[Math.floor(Math.random() * chars.length)];
+    return out;
+  }
+
+  function initFirebase() {
+    if (typeof firebase === 'undefined' || FIREBASE_CONFIG.apiKey === 'YOUR_API_KEY') {
+      syncStatus = 'offline';
+      return;
+    }
+    try {
+      firebase.initializeApp(FIREBASE_CONFIG);
+      firebaseReady = true;
+      // Check URL hash for invite link
+      const hash = (location.hash || '').match(/family=([A-Z0-9]+)/i);
+      if (hash && !familyCode) setFamilyCode(hash[1]);
+      if (familyCode) connectFamily(familyCode);
+    } catch (e) {
+      console.warn('Firebase init failed', e);
+      syncStatus = 'error';
+    }
+  }
+
+  function connectFamily(code) {
+    if (!firebaseReady) return;
+    setFamilyCode(code);
+    if (dataRef) dataRef.off();
+    syncStatus = 'connecting';
+    render();
+    dataRef = firebase.database().ref(`families/${familyCode}`);
+    dataRef.on('value', (snap) => {
+      const remote = snap.val();
+      syncStatus = 'connected';
+      if (!remote) {
+        // Empty family node — push current local state up so we own it
+        pushRemote();
+        render();
+        return;
+      }
+      suppressWrite = true;
+      state.profiles = remote.profiles || [];
+      state.chores = remote.chores || [];
+      // If our active profile no longer exists in synced set, clear it
+      if (state.activeProfileId && !state.profiles.find(p => p.id === state.activeProfileId)) {
+        state.activeProfileId = null;
+      }
+      saveLocal();
+      suppressWrite = false;
+      render();
+    }, (err) => {
+      console.warn('Firebase read failed', err);
+      syncStatus = 'error';
+      render();
+    });
+  }
+
+  function leaveFamily() {
+    if (!confirm('Leave this family on this device? You can rejoin with the code later.')) return;
+    if (dataRef) { dataRef.off(); dataRef = null; }
+    setFamilyCode(null);
+    state.profiles = [];
+    state.chores = [];
+    state.activeProfileId = null;
+    saveLocal();
+    syncStatus = firebaseReady ? 'offline' : 'offline';
+    render();
+  }
 
   function uid() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -353,6 +491,70 @@
 
   // --- Views ---
 
+  function familySetupView() {
+    const card = el('div', { class: 'card' });
+    card.appendChild(el('h2', {}, 'Set up your family'));
+    card.appendChild(el('p', { class: 'chore-meta' },
+      firebaseReady
+        ? 'Create a new family or join one with a code from a parent.'
+        : 'Firebase config missing — paste your config into index.html to enable cross-device sync.'
+    ));
+
+    if (!firebaseReady) {
+      return el('div', {}, el('header', {}, el('h1', {}, 'Chore Tracker')), el('main', {}, card));
+    }
+
+    card.appendChild(el('button', {
+      style: 'margin-top: 8px;',
+      onClick: () => {
+        const code = generateFamilyCode();
+        connectFamily(code);
+      }
+    }, 'Create new family'));
+
+    card.appendChild(el('form', {
+      style: 'margin-top: 14px;',
+      onSubmit: (e) => {
+        e.preventDefault();
+        const code = (new FormData(e.target).get('code') || '').toString().trim().toUpperCase();
+        if (!code) return;
+        connectFamily(code);
+      }
+    },
+      el('label', {}, 'Or join with a code',
+        el('input', { name: 'code', placeholder: 'e.g. AB12CD', required: true, style: 'text-transform: uppercase;' }),
+      ),
+      el('button', { type: 'submit', class: 'secondary' }, 'Join family'),
+    ));
+
+    return el('div', {}, el('header', {}, el('h1', {}, 'Chore Tracker')), el('main', {}, card));
+  }
+
+  function familyBanner() {
+    if (!familyCode) return null;
+    const inviteUrl = `${location.origin}${location.pathname}#family=${familyCode}`;
+    return el('div', { class: 'family-banner' },
+      el('div', {},
+        el('span', { class: `sync-dot ${syncStatus === 'connected' ? 'connected' : (syncStatus === 'error' ? 'error' : '')}` }),
+        'Family code: ', el('code', {}, familyCode),
+      ),
+      el('div', { style: 'display: flex; gap: 6px; flex-wrap: wrap;' },
+        el('button', {
+          class: 'secondary tiny',
+          onClick: async () => {
+            try {
+              await navigator.clipboard.writeText(inviteUrl);
+              alert('Invite link copied!');
+            } catch {
+              prompt('Copy this invite link:', inviteUrl);
+            }
+          }
+        }, 'Copy invite link'),
+        el('button', { class: 'danger tiny', onClick: leaveFamily }, 'Leave'),
+      ),
+    );
+  }
+
   function profilePicker() {
     const wrap = el('main');
     const card = el('div', { class: 'card' });
@@ -402,9 +604,10 @@
     }
 
     wrap.appendChild(card);
+    const banner = familyBanner();
     return el('div', {},
       el('header', {}, el('h1', {}, 'Chore Tracker')),
-      wrap,
+      el('main', {}, ...(banner ? [banner] : []), ...wrap.children),
     );
   }
 
@@ -454,6 +657,7 @@
         ),
       ),
       el('main', {},
+        familyBanner(),
         isParent ? parentPanel() : kidPanel(me),
         familyPanel(),
         choreListPanel(isParent, me),
@@ -605,9 +809,14 @@
 
   function render() {
     root.innerHTML = '';
+    if (firebaseReady && !familyCode) {
+      root.appendChild(familySetupView());
+      return;
+    }
     root.appendChild(activeProfile() ? appView() : profilePicker());
   }
 
+  initFirebase();
   render();
 })();
 </script>
