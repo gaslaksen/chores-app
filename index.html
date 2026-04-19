@@ -408,6 +408,22 @@
     saveState();
   }
 
+  function updateProfile(id, { name, contact, role }) {
+    const p = profileById(id);
+    if (!p) return;
+    if (name && name.trim()) p.name = name.trim();
+    if (typeof contact === 'string') p.contact = contact.trim();
+    if (role && (role === 'parent' || role === 'kid')) p.role = role;
+    saveState();
+  }
+
+  function resetBalance(id) {
+    const p = profileById(id);
+    if (!p) return;
+    p.balance_cents = 0;
+    saveState();
+  }
+
   function addChore({ title, description, rewardCents }) {
     state.chores.push({
       id: uid(),
@@ -659,7 +675,7 @@
       el('main', {},
         familyBanner(),
         isParent ? parentPanel() : kidPanel(me),
-        familyPanel(),
+        familyPanel(isParent),
         choreListPanel(isParent, me),
       ),
     );
@@ -715,18 +731,86 @@
     );
   }
 
-  function familyPanel() {
+  function familyPanel(isParent) {
     return el('div', { class: 'card' },
-      el('h2', {}, 'Family'),
+      el('h2', {}, isParent ? 'Manage family' : 'Family'),
       el('div', { class: 'members-list' },
-        ...state.profiles.map(p =>
-          el('div', { class: 'member-row' },
-            el('div', {},
-              el('div', {}, `${p.name} `, el('span', { class: `role-badge ${p.role}` }, p.role)),
-              p.contact ? el('div', { class: 'contact' }, p.contact) : null,
+        ...state.profiles.map(p => isParent ? parentMemberRow(p) : memberRow(p)),
+      ),
+      isParent ? el('details', { style: 'margin-top: 14px;' },
+        el('summary', {}, '+ Add another profile'),
+        addProfileForm(),
+      ) : null,
+    );
+  }
+
+  function memberRow(p) {
+    return el('div', { class: 'member-row' },
+      el('div', {},
+        el('div', {}, `${p.name} `, el('span', { class: `role-badge ${p.role}` }, p.role)),
+        p.contact ? el('div', { class: 'contact' }, p.contact) : null,
+      ),
+      p.role === 'kid' ? el('span', { class: 'balance' }, fmtMoney(p.balance_cents)) : el('span', {}),
+    );
+  }
+
+  function parentMemberRow(p) {
+    return el('div', { class: 'member-row', style: 'flex-direction: column; align-items: stretch;' },
+      el('div', { style: 'display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; width: 100%;' },
+        el('div', {},
+          el('span', { style: 'font-weight: 600;' }, p.name),
+          ' ',
+          el('span', { class: `role-badge ${p.role}` }, p.role),
+          p.contact ? el('div', { class: 'contact' }, p.contact) : null,
+        ),
+        p.role === 'kid' ? el('span', { class: 'balance' }, fmtMoney(p.balance_cents)) : el('span', {}),
+      ),
+      el('details', { style: 'margin-top: 6px; width: 100%;' },
+        el('summary', {}, 'Edit'),
+        el('form', {
+          style: 'margin-top: 8px;',
+          onSubmit: (e) => {
+            e.preventDefault();
+            const fd = new FormData(e.target);
+            updateProfile(p.id, {
+              name: (fd.get('name') || '').toString(),
+              contact: (fd.get('contact') || '').toString(),
+              role: fd.get('role'),
+            });
+            render();
+          }
+        },
+          el('label', {}, 'Name', el('input', { name: 'name', value: p.name, required: true })),
+          el('label', {}, 'Role',
+            el('select', { name: 'role' },
+              el('option', { value: 'parent', selected: p.role === 'parent' }, 'Parent'),
+              el('option', { value: 'kid', selected: p.role === 'kid' }, 'Kid'),
             ),
-            p.role === 'kid' ? el('span', { class: 'balance' }, fmtMoney(p.balance_cents)) : el('span', {}),
-          )
+          ),
+          el('label', {}, 'Apple Cash contact (iCloud email or phone)',
+            el('input', { name: 'contact', value: p.contact || '', placeholder: 'kid@icloud.com' }),
+          ),
+          el('div', { style: 'display: flex; gap: 8px; flex-wrap: wrap;' },
+            el('button', { type: 'submit', class: 'tiny' }, 'Save'),
+            p.role === 'kid' && p.balance_cents > 0 ? el('button', {
+              type: 'button', class: 'success tiny',
+              onClick: () => {
+                if (confirm(`Mark ${fmtMoney(p.balance_cents)} as paid out to ${p.name}? This zeros their balance.`)) {
+                  resetBalance(p.id);
+                  render();
+                }
+              }
+            }, `Mark ${fmtMoney(p.balance_cents)} paid`) : null,
+            el('button', {
+              type: 'button', class: 'danger tiny',
+              onClick: () => {
+                if (confirm(`Remove ${p.name}? Their unfinished chores will go back to the pool.`)) {
+                  removeProfile(p.id);
+                  render();
+                }
+              }
+            }, 'Remove'),
+          ),
         ),
       ),
     );
