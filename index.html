@@ -752,10 +752,13 @@
     } else {
       const grid = el('div', { class: 'profile-grid' });
       for (const p of state.profiles) {
+        const stats = p.role === 'kid' ? earningsFor(p.id) : null;
         grid.appendChild(el('div', { class: 'profile-tile', onClick: () => switchProfile(p.id) },
           el('div', { class: 'name' }, p.name),
           el('span', { class: `role-badge ${p.role}` }, p.role),
-          p.role === 'kid' ? el('div', { class: 'bal' }, fmtMoney(p.balance_cents)) : null,
+          p.pin ? el('div', { class: 'contact', style: 'margin-top: 4px;' }, '🔒') : null,
+          stats ? el('div', { class: 'bal' }, fmtMoney(stats.total)) : null,
+          stats ? el('div', { class: 'chore-meta', style: 'font-size: 0.7rem;' }, 'all time') : null,
         ));
       }
       card.appendChild(grid);
@@ -1021,12 +1024,16 @@
   }
 
   function memberRow(p) {
+    const stats = p.role === 'kid' ? earningsFor(p.id) : null;
     return el('div', { class: 'member-row' },
       el('div', {},
         el('div', {}, `${p.name} `, el('span', { class: `role-badge ${p.role}` }, p.role)),
         p.contact ? el('div', { class: 'contact' }, p.contact) : null,
       ),
-      p.role === 'kid' ? el('span', { class: 'balance' }, fmtMoney(p.balance_cents)) : el('span', {}),
+      stats ? el('div', { style: 'text-align: right;' },
+        el('div', { class: 'chore-meta' }, 'All time'),
+        el('div', { style: 'font-size: 1.2rem; color: var(--success); font-weight: 700; line-height: 1;' }, fmtMoney(stats.total)),
+      ) : el('span', {}),
     );
   }
 
