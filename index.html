@@ -4,6 +4,11 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Chore Tracker</title>
+<link rel="icon" type="image/png" href="icon.png" />
+<link rel="apple-touch-icon" href="icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="Chores" />
+<meta name="theme-color" content="#4f46e5" />
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 <style>
@@ -439,12 +444,13 @@
     saveState();
   }
 
-  function updateProfile(id, { name, contact, role }) {
+  function updateProfile(id, { name, contact, role, pin }) {
     const p = profileById(id);
     if (!p) return;
     if (name && name.trim()) p.name = name.trim();
     if (typeof contact === 'string') p.contact = contact.trim();
     if (role && (role === 'parent' || role === 'kid')) p.role = role;
+    if (typeof pin === 'string') p.pin = pin.trim() || null;
     saveState();
   }
 
@@ -604,11 +610,35 @@
     if (!c || c.status !== 'approved') return;
     const kid = profileById(c.claimed_by);
     if (kid) kid.balance_cents = Math.max(0, kid.balance_cents - c.reward_cents);
-    state.chores = state.chores.filter(x => x.id !== id);
+    c.status = 'paid';
+    c.paid_at = new Date().toISOString();
     saveState();
   }
 
+  function earningsFor(kidId) {
+    const paid = state.chores.filter(c => c.status === 'paid' && c.claimed_by === kidId);
+    const now = Date.now();
+    const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
+    const monthAgo = now - 30 * 24 * 60 * 60 * 1000;
+    let week = 0, month = 0, total = 0;
+    for (const c of paid) {
+      const t = new Date(c.paid_at).getTime();
+      total += c.reward_cents;
+      if (t >= weekAgo) week += c.reward_cents;
+      if (t >= monthAgo) month += c.reward_cents;
+    }
+    return { week, month, total, count: paid.length, recent: paid.slice(-5).reverse() };
+  }
+
   function switchProfile(id) {
+    if (id) {
+      const p = profileById(id);
+      if (p && p.pin) {
+        const entry = prompt(`Enter PIN for ${p.name}:`);
+        if (entry === null) return;
+        if (entry !== p.pin) { alert('Incorrect PIN.'); return; }
+      }
+    }
     state.activeProfileId = id;
     saveState();
     render();
@@ -932,11 +962,35 @@
   }
 
   function kidPanel(me) {
+    const stats = earningsFor(me.id);
     return el('div', { class: 'card' },
       el('h2', {}, 'Your earnings'),
-      el('p', { style: 'font-size: 1.6rem; margin: 4px 0; color: var(--success); font-weight: 700;' },
-        fmtMoney(me.balance_cents)
+      el('div', { style: 'display: flex; gap: 16px; flex-wrap: wrap; align-items: baseline;' },
+        el('div', {},
+          el('div', { class: 'chore-meta' }, 'Owed to you'),
+          el('div', { style: 'font-size: 1.6rem; color: var(--success); font-weight: 700;' }, fmtMoney(me.balance_cents)),
+        ),
+        el('div', {},
+          el('div', { class: 'chore-meta' }, 'This week'),
+          el('div', { style: 'font-size: 1.1rem; font-weight: 600;' }, fmtMoney(stats.week)),
+        ),
+        el('div', {},
+          el('div', { class: 'chore-meta' }, 'All time'),
+          el('div', { style: 'font-size: 1.1rem; font-weight: 600;' }, fmtMoney(stats.total)),
+        ),
       ),
+      stats.recent.length > 0 ? el('details', { style: 'margin-top: 12px;' },
+        el('summary', {}, `Recent payouts (${stats.count})`),
+        el('div', { class: 'members-list', style: 'margin-top: 8px;' },
+          ...stats.recent.map(c => el('div', { class: 'member-row' },
+            el('div', {},
+              el('div', {}, c.title),
+              el('div', { class: 'contact' }, new Date(c.paid_at).toLocaleDateString()),
+            ),
+            el('span', { class: 'reward' }, fmtMoney(c.reward_cents)),
+          )),
+        ),
+      ) : null,
       el('p', { class: 'chore-meta' }, 'Pick a chore below, mark it done, and a parent will approve it.'),
       el('form', {
         style: 'margin-top: 10px; display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end;',
@@ -979,13 +1033,18 @@
   }
 
   function parentMemberRow(p) {
+    const stats = p.role === 'kid' ? earningsFor(p.id) : null;
     return el('div', { class: 'member-row', style: 'flex-direction: column; align-items: stretch;' },
       el('div', { style: 'display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; width: 100%;' },
         el('div', {},
           el('span', { style: 'font-weight: 600;' }, p.name),
           ' ',
           el('span', { class: `role-badge ${p.role}` }, p.role),
+          p.pin ? el('span', { class: 'contact', style: 'margin-left: 6px;' }, '🔒 PIN') : null,
           p.contact ? el('div', { class: 'contact' }, p.contact) : null,
+          stats ? el('div', { class: 'contact', style: 'margin-top: 2px;' },
+            `Owed ${fmtMoney(p.balance_cents)} · this week ${fmtMoney(stats.week)} · all time ${fmtMoney(stats.total)}`
+          ) : null,
         ),
         p.role === 'kid' ? el('span', { class: 'balance' }, fmtMoney(p.balance_cents)) : el('span', {}),
       ),
@@ -1000,6 +1059,7 @@
               name: (fd.get('name') || '').toString(),
               contact: (fd.get('contact') || '').toString(),
               role: fd.get('role'),
+              pin: (fd.get('pin') || '').toString(),
             });
             render();
           }
@@ -1013,6 +1073,9 @@
           ),
           el('label', {}, 'Apple Cash contact (iCloud email or phone)',
             el('input', { name: 'contact', value: p.contact || '', placeholder: 'kid@icloud.com' }),
+          ),
+          el('label', {}, p.pin ? 'PIN (clear to remove)' : 'PIN (optional, locks this profile)',
+            el('input', { name: 'pin', type: 'text', inputmode: 'numeric', pattern: '[0-9]*', maxlength: '8', value: p.pin || '', placeholder: '4-digit code' }),
           ),
           el('div', { style: 'display: flex; gap: 8px; flex-wrap: wrap;' },
             el('button', { type: 'submit', class: 'tiny' }, 'Save'),
@@ -1041,7 +1104,8 @@
   }
 
   function choreListPanel(isParent, me) {
-    const sorted = [...state.chores].sort((a, b) => {
+    const active = state.chores.filter(c => c.status !== 'paid');
+    const sorted = [...active].sort((a, b) => {
       const order = { open: 0, claimed: 1, completed: 2, approved: 3 };
       if (order[a.status] !== order[b.status]) return order[a.status] - order[b.status];
       return (b.created_at || '').localeCompare(a.created_at || '');
