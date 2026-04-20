@@ -156,24 +156,6 @@
   .profile-tile .role-badge { margin-top: 4px; }
   .profile-tile .bal { font-size: 0.8rem; color: var(--success); margin-top: 6px; font-weight: 600; }
 
-  .family-banner {
-    background: #eef2ff;
-    border-radius: 8px;
-    padding: 10px 14px;
-    font-size: 0.85rem;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-  .family-banner code {
-    background: white;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-weight: 600;
-    letter-spacing: 1px;
-  }
   .sync-dot {
     display: inline-block;
     width: 8px;
@@ -184,6 +166,48 @@
   }
   .sync-dot.connected { background: var(--success); }
   .sync-dot.error { background: var(--danger); }
+
+  .menu-btn {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 6px 10px;
+    font-size: 1.1rem;
+    line-height: 1;
+    border-radius: 8px;
+  }
+  .menu-btn:hover { background: #f3f4f6; }
+  .menu-backdrop {
+    position: fixed;
+    inset: 0;
+    background: transparent;
+    z-index: 9;
+  }
+  .menu-popover {
+    position: fixed;
+    top: 60px;
+    right: 14px;
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.12);
+    z-index: 10;
+    min-width: 260px;
+    max-width: calc(100vw - 28px);
+    display: grid;
+    gap: 10px;
+  }
+  .menu-popover .label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .menu-popover code {
+    background: #f3f4f6;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    display: inline-block;
+  }
+  .menu-popover .row { display: flex; gap: 8px; flex-wrap: wrap; }
 
   .members-list { display: grid; gap: 6px; }
   .member-row {
@@ -258,6 +282,7 @@
   let dataRef = null;
   let suppressWrite = false;
   let syncStatus = 'offline'; // offline | connecting | connected | error
+  let menuOpen = false;
 
   function setFamilyCode(code) {
     familyCode = code ? code.trim().toUpperCase() : null;
@@ -555,27 +580,50 @@
     return el('div', {}, el('header', {}, el('h1', {}, 'Chore Tracker')), el('main', {}, card));
   }
 
-  function familyBanner() {
+  function menuButton() {
     if (!familyCode) return null;
+    return el('button', {
+      class: 'menu-btn',
+      title: 'Family menu',
+      onClick: () => { menuOpen = !menuOpen; render(); },
+    }, '☰');
+  }
+
+  function menuPopover() {
+    if (!menuOpen || !familyCode) return null;
     const inviteUrl = `${location.origin}${location.pathname}#family=${familyCode}`;
-    return el('div', { class: 'family-banner' },
-      el('div', {},
-        el('span', { class: `sync-dot ${syncStatus === 'connected' ? 'connected' : (syncStatus === 'error' ? 'error' : '')}` }),
-        'Family code: ', el('code', {}, familyCode),
-      ),
-      el('div', { style: 'display: flex; gap: 6px; flex-wrap: wrap;' },
-        el('button', {
-          class: 'secondary tiny',
-          onClick: async () => {
-            try {
-              await navigator.clipboard.writeText(inviteUrl);
-              alert('Invite link copied!');
-            } catch {
-              prompt('Copy this invite link:', inviteUrl);
+    const statusText = syncStatus === 'connected' ? 'Synced live' :
+                       syncStatus === 'connecting' ? 'Connecting…' :
+                       syncStatus === 'error' ? 'Connection error' : 'Offline';
+    return el('div', {},
+      el('div', { class: 'menu-backdrop', onClick: () => { menuOpen = false; render(); } }),
+      el('div', { class: 'menu-popover' },
+        el('div', {},
+          el('div', { class: 'label' }, 'Family code'),
+          el('code', {}, familyCode),
+        ),
+        el('div', {},
+          el('span', { class: `sync-dot ${syncStatus === 'connected' ? 'connected' : (syncStatus === 'error' ? 'error' : '')}` }),
+          statusText,
+        ),
+        el('div', { class: 'row' },
+          el('button', {
+            class: 'secondary tiny',
+            onClick: async () => {
+              try {
+                await navigator.clipboard.writeText(inviteUrl);
+                alert('Invite link copied!');
+              } catch {
+                prompt('Copy this invite link:', inviteUrl);
+              }
+              menuOpen = false; render();
             }
-          }
-        }, 'Copy invite link'),
-        el('button', { class: 'danger tiny', onClick: leaveFamily }, 'Leave'),
+          }, 'Copy invite link'),
+          el('button', {
+            class: 'danger tiny',
+            onClick: () => { menuOpen = false; leaveFamily(); },
+          }, 'Leave family'),
+        ),
       ),
     );
   }
@@ -629,10 +677,13 @@
     }
 
     wrap.appendChild(card);
-    const banner = familyBanner();
     return el('div', {},
-      el('header', {}, el('h1', {}, 'Chore Tracker')),
-      el('main', {}, ...(banner ? [banner] : []), ...wrap.children),
+      el('header', {},
+        el('h1', {}, 'Chore Tracker'),
+        el('div', { class: 'user-info' }, menuButton()),
+      ),
+      el('main', {}, ...wrap.children),
+      menuPopover(),
     );
   }
 
@@ -679,14 +730,15 @@
           el('span', { class: `role-badge ${me.role}` }, me.role),
           !isParent && el('span', { class: 'balance' }, fmtMoney(me.balance_cents)),
           el('button', { class: 'secondary tiny', onClick: () => switchProfile(null) }, 'Switch user'),
+          menuButton(),
         ),
       ),
       el('main', {},
-        familyBanner(),
         isParent ? parentPanel() : kidPanel(me),
         familyPanel(isParent),
         choreListPanel(isParent, me),
       ),
+      menuPopover(),
     );
   }
 
