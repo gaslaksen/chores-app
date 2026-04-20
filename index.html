@@ -252,21 +252,26 @@
   function loadLocal() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) return JSON.parse(raw);
+      if (raw) {
+        const s = JSON.parse(raw);
+        if (!s.recurring) s.recurring = [];
+        return s;
+      }
     } catch {}
-    return { profiles: [], chores: [], activeProfileId: null };
+    return { profiles: [], chores: [], recurring: [], activeProfileId: null };
   }
 
   function saveLocal() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }
 
-  // Push local profiles+chores to Firebase. activeProfileId stays per-device.
+  // Push local profiles+chores+recurring to Firebase. activeProfileId stays per-device.
   function pushRemote() {
     if (!firebaseReady || !dataRef || suppressWrite) return;
     dataRef.set({
       profiles: state.profiles,
       chores: state.chores,
+      recurring: state.recurring || [],
       updated_at: Date.now(),
     }).catch(err => console.warn('Firebase write failed', err));
   }
@@ -334,6 +339,7 @@
       suppressWrite = true;
       state.profiles = remote.profiles || [];
       state.chores = remote.chores || [];
+      state.recurring = remote.recurring || [];
       // If our active profile no longer exists in synced set, clear it
       if (state.activeProfileId && !state.profiles.find(p => p.id === state.activeProfileId)) {
         state.activeProfileId = null;
@@ -513,6 +519,84 @@
     c.status = 'claimed';
     c.completed_at = null;
     saveState();
+  }
+
+  function addRecurring({ title, description, rewardCents, frequency, startDate, time }) {
+    const next = computeFirstDueAt({ frequency, startDate, time });
+    state.recurring.push({
+      id: uid(),
+      title: title.trim(),
+      description: (description || '').trim() || null,
+      reward_cents: Math.max(0, Math.floor(rewardCents)),
+      frequency,
+      start_date: startDate,
+      time_of_day: time,
+      next_due_at: next.toISOString(),
+      paused: false,
+      created_by: state.activeProfileId,
+    });
+    saveState();
+    maybeSpawnRecurring();
+  }
+
+  function deleteRecurring(id) {
+    state.recurring = state.recurring.filter(t => t.id !== id);
+    saveState();
+  }
+
+  function toggleRecurringPaused(id) {
+    const t = state.recurring.find(x => x.id === id);
+    if (!t) return;
+    t.paused = !t.paused;
+    saveState();
+  }
+
+  function computeFirstDueAt({ frequency, startDate, time }) {
+    const [h, m] = (time || '09:00').split(':').map(Number);
+    const d = new Date(startDate + 'T00:00:00');
+    d.setHours(h || 0, m || 0, 0, 0);
+    return d;
+  }
+
+  function bumpNextDueAt(tmpl) {
+    const cur = new Date(tmpl.next_due_at);
+    if (tmpl.frequency === 'daily') cur.setDate(cur.getDate() + 1);
+    else if (tmpl.frequency === 'weekly') cur.setDate(cur.getDate() + 7);
+    else if (tmpl.frequency === 'monthly') cur.setMonth(cur.getMonth() + 1);
+    return cur.toISOString();
+  }
+
+  function maybeSpawnRecurring() {
+    if (!state.recurring || state.recurring.length === 0) return false;
+    const now = Date.now();
+    let changed = false;
+    for (const tmpl of state.recurring) {
+      if (tmpl.paused) continue;
+      // Catch up if overdue, but only spawn one open instance at a time
+      while (new Date(tmpl.next_due_at).getTime() <= now) {
+        const hasOpen = state.chores.some(c => c.template_id === tmpl.id && c.status !== 'approved');
+        if (!hasOpen) {
+          state.chores.push({
+            id: uid(),
+            title: tmpl.title,
+            description: tmpl.description,
+            reward_cents: tmpl.reward_cents,
+            status: 'open',
+            created_by: tmpl.created_by,
+            template_id: tmpl.id,
+            claimed_by: null,
+            claimed_at: null,
+            completed_at: null,
+            approved_at: null,
+            created_at: new Date().toISOString(),
+          });
+        }
+        tmpl.next_due_at = bumpNextDueAt(tmpl);
+        changed = true;
+      }
+    }
+    if (changed) saveState();
+    return changed;
   }
 
   function markChorePaid(id) {
@@ -750,11 +834,23 @@
           e.preventDefault();
           const fd = new FormData(e.target);
           const dollars = parseFloat(fd.get('reward')) || 0;
-          addChore({
-            title: (fd.get('title') || '').toString(),
-            description: (fd.get('description') || '').toString(),
-            rewardCents: Math.round(dollars * 100),
-          });
+          const isRecurring = fd.get('recurring') === 'on';
+          if (isRecurring) {
+            addRecurring({
+              title: (fd.get('title') || '').toString(),
+              description: (fd.get('description') || '').toString(),
+              rewardCents: Math.round(dollars * 100),
+              frequency: fd.get('frequency'),
+              startDate: fd.get('startDate'),
+              time: fd.get('time'),
+            });
+          } else {
+            addChore({
+              title: (fd.get('title') || '').toString(),
+              description: (fd.get('description') || '').toString(),
+              rewardCents: Math.round(dollars * 100),
+            });
+          }
           e.target.reset();
           e.target.elements.reward.value = '1.00';
           render();
@@ -763,9 +859,76 @@
         el('label', {}, 'Title', el('input', { name: 'title', required: true, placeholder: 'e.g. Take out the trash' })),
         el('label', {}, 'Description (optional)', el('textarea', { name: 'description', rows: 2 })),
         el('label', {}, 'Reward ($)', el('input', { name: 'reward', type: 'number', min: '0', step: '0.25', required: true, value: '1.00' })),
+        el('label', { style: 'display: flex; flex-direction: row; align-items: center; gap: 8px;' },
+          el('input', {
+            type: 'checkbox',
+            name: 'recurring',
+            style: 'width: auto;',
+            onChange: (e) => {
+              const f = e.target.closest('form').querySelector('.recurring-fields');
+              if (f) f.style.display = e.target.checked ? 'grid' : 'none';
+            },
+          }),
+          'Make this a recurring chore',
+        ),
+        el('div', { class: 'recurring-fields', style: 'display: none; gap: 10px; padding: 10px; background: #f9fafb; border-radius: 8px; grid-template-columns: 1fr 1fr;' },
+          el('label', { style: 'grid-column: 1 / -1;' }, 'Repeats',
+            el('select', { name: 'frequency' },
+              el('option', { value: 'daily' }, 'Every day'),
+              el('option', { value: 'weekly', selected: true }, 'Every week'),
+              el('option', { value: 'monthly' }, 'Every month'),
+            ),
+          ),
+          el('label', {}, 'Starting',
+            el('input', { name: 'startDate', type: 'date', value: new Date().toISOString().slice(0, 10) }),
+          ),
+          el('label', {}, 'At',
+            el('input', { name: 'time', type: 'time', value: '09:00' }),
+          ),
+        ),
         el('button', { type: 'submit' }, 'Add chore'),
       ),
+      recurringList(),
     );
+  }
+
+  function recurringList() {
+    if (!state.recurring || state.recurring.length === 0) return null;
+    return el('div', { style: 'margin-top: 18px;' },
+      el('h2', { style: 'font-size: 0.95rem;' }, 'Recurring chores'),
+      el('div', { class: 'members-list' },
+        ...state.recurring.map(t => el('div', { class: 'member-row' },
+          el('div', {},
+            el('div', { style: 'font-weight: 600;' }, t.title),
+            el('div', { class: 'contact' }, recurringSummary(t)),
+          ),
+          el('div', { style: 'display: flex; gap: 6px; flex-wrap: wrap; align-items: center;' },
+            el('span', { class: 'reward', style: 'font-size: 0.9rem;' }, fmtMoney(t.reward_cents)),
+            el('button', {
+              class: 'secondary tiny',
+              onClick: () => { toggleRecurringPaused(t.id); render(); },
+            }, t.paused ? 'Resume' : 'Pause'),
+            el('button', {
+              class: 'danger tiny',
+              onClick: () => {
+                if (confirm(`Stop recurring chore "${t.title}"? Existing instances stay.`)) {
+                  deleteRecurring(t.id);
+                  render();
+                }
+              },
+            }, 'Delete'),
+          ),
+        )),
+      ),
+    );
+  }
+
+  function recurringSummary(t) {
+    const freq = t.frequency === 'daily' ? 'Every day' : t.frequency === 'weekly' ? 'Every week' : 'Every month';
+    const time = t.time_of_day || '09:00';
+    const next = new Date(t.next_due_at);
+    const nextStr = next.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) + ' ' + time;
+    return `${freq} at ${time}${t.paused ? ' · paused' : ` · next: ${nextStr}`}`;
   }
 
   function kidPanel(me) {
@@ -963,6 +1126,7 @@
   // --- Render ---
 
   function render() {
+    maybeSpawnRecurring();
     root.innerHTML = '';
     if (firebaseReady && !familyCode) {
       root.appendChild(familySetupView());
@@ -973,6 +1137,11 @@
 
   initFirebase();
   render();
+
+  // Re-check for due recurring chores every minute while the page is open
+  setInterval(() => {
+    if (maybeSpawnRecurring()) render();
+  }, 60 * 1000);
 })();
 </script>
 </body>
