@@ -490,6 +490,15 @@
     saveState();
   }
 
+  function markChorePaid(id) {
+    const c = state.chores.find(x => x.id === id);
+    if (!c || c.status !== 'approved') return;
+    const kid = profileById(c.claimed_by);
+    if (kid) kid.balance_cents = Math.max(0, kid.balance_cents - c.reward_cents);
+    state.chores = state.chores.filter(x => x.id !== id);
+    saveState();
+  }
+
   function switchProfile(id) {
     state.activeProfileId = id;
     saveState();
@@ -863,13 +872,23 @@
         actions.push(el('button', { class: 'success tiny', onClick: () => { approveChore(chore.id); render(); } }, 'Approve & pay'));
         actions.push(el('button', { class: 'warn tiny', onClick: () => { rejectChore(chore.id); render(); } }, 'Send back'));
       }
-      if (chore.status === 'approved' && claimer && claimer.contact) {
-        actions.push(el('a', {
-          class: 'btn-link imessage tiny',
-          href: paymentSmsUrl(claimer.contact, chore.reward_cents, chore.title),
-        }, `💬 Pay ${fmtMoney(chore.reward_cents)}`));
-      }
-      if (chore.status !== 'approved') {
+      if (chore.status === 'approved') {
+        if (claimer && claimer.contact) {
+          actions.push(el('a', {
+            class: 'btn-link imessage tiny',
+            href: paymentSmsUrl(claimer.contact, chore.reward_cents, chore.title),
+          }, `💬 Pay ${fmtMoney(chore.reward_cents)}`));
+        }
+        actions.push(el('button', {
+          class: 'success tiny',
+          onClick: () => {
+            if (confirm(`Mark "${chore.title}" as paid? This removes the chore and subtracts ${fmtMoney(chore.reward_cents)} from ${claimer ? claimer.name + "'s" : 'the'} balance.`)) {
+              markChorePaid(chore.id);
+              render();
+            }
+          }
+        }, 'Paid'));
+      } else {
         actions.push(el('button', {
           class: 'danger tiny',
           onClick: () => {
